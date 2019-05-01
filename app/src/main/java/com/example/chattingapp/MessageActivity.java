@@ -49,6 +49,10 @@ public class MessageActivity extends AppCompatActivity {
 
     Intent intent;
 
+    ValueEventListener seenListener;
+
+    String userid = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,7 +65,8 @@ public class MessageActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                finish();
+            //    finish();
+                startActivity(new Intent(MessageActivity.this,MainPage.class).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
             }
         });
 
@@ -79,7 +84,8 @@ public class MessageActivity extends AppCompatActivity {
 
 
         intent = getIntent();
-        final String userid = intent.getStringExtra("userid");
+        userid = intent.getStringExtra("userid");
+
         fuser = FirebaseAuth.getInstance().getCurrentUser();
 
         btn_send.setOnClickListener(new View.OnClickListener() {
@@ -106,7 +112,7 @@ public class MessageActivity extends AppCompatActivity {
                 if(user.getImageURL().equals("default")){
                     profile_image.setImageResource(R.mipmap.ic_launcher);
                 } else {
-                    Glide.with(MessageActivity.this).load(user.getImageURL()).into(profile_image);
+                    Glide.with(getApplicationContext()).load(user.getImageURL()).into(profile_image);
                 }
                 readMessage(fuser.getUid(),userid,user.getImageURL());
             }
@@ -116,17 +122,59 @@ public class MessageActivity extends AppCompatActivity {
 
             }
         });
-
+        seenMessage(userid);
     }
 
-    public void sendMesage(String sender,String receiver,String message){
+    private void seenMessage(final String userid){
+        reference = FirebaseDatabase.getInstance().getReference("Chats");
+        seenListener = reference.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                for(DataSnapshot snapshot : dataSnapshot.getChildren()){
+                    Chat chat = snapshot.getValue(Chat.class);
+                    if(chat.getReceiver().equals(fuser.getUid()) && chat.getSender().equals(userid)){
+                        HashMap<String, Object> hashMap = new HashMap<>();
+                        hashMap.put("isseen",true);
+                        snapshot.getRef().updateChildren(hashMap);
+                    }
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError databaseError) {
+
+            }
+        });
+    }
+
+    public void sendMesage(String sender,final String receiver,String message){
         DatabaseReference reference = FirebaseDatabase.getInstance().getReference();
 
         HashMap<String,Object> hashMap = new HashMap<>();
         hashMap.put("sender",sender);
         hashMap.put("receiver",receiver);
         hashMap.put("message",message);
+        hashMap.put("isseen",false);
         reference.child("Chats").push().setValue(hashMap);
+
+        //add user to chat fragment
+        final DatabaseReference chatRef = FirebaseDatabase.getInstance().getReference("ChatList")
+                .child(fuser.getUid())
+                .child(userid);
+
+        chatRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                if(!dataSnapshot.exists()){
+                    chatRef.child("id").setValue(userid);
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError databaseError) {
+
+            }
+        });
     }
 
     private  void readMessage(final String myid, final String userid, final String imageurl){
@@ -153,5 +201,26 @@ public class MessageActivity extends AppCompatActivity {
 
             }
         });
+    }
+
+    private void status(String status){
+        reference = FirebaseDatabase.getInstance().getReference("Users").child(fuser.getUid());
+
+        HashMap<String,Object> hashMap = new HashMap<>();
+        hashMap.put("status",status);
+        reference.updateChildren(hashMap);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        status("online");
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        reference.removeEventListener(seenListener);
+        status("offline");
     }
 }
